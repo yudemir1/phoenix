@@ -1,0 +1,21 @@
+# Derlenen binary
+/bin/
+phoenix
+phoenix-linux
+phoenix.exe
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Go
+*.test
+*.out
+
+# SSH private key'ler asla repoya girmesin!
+*.pem
+*_id_ed25519
+*_id_rsag
