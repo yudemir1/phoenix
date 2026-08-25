@@ -1,0 +1,19 @@
+global:
+  check_interval: 10s
+  failure_threshold: 3
+  ssh_timeout: 5s
+
+services:
+  - name: web-api-1
+    check_type: http
+    target: "http://10.0.0.5:8080/health"
+
+    ssh:
+      host: ""
+      port: 22
+      user: "deploy"
+      key_path: "/home/deploy/.ssh/phoenix_id_ed25519"
+
+    recover:
+      strategy: docker_restart
+      target: "web-api-container"

@@ -1,0 +1,6 @@
+global:
+  check_interval: 10s
+  failure_threshold: 3
+  ssh_timeout: 5s
+
+services: []

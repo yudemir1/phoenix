@@ -44,3 +44,79 @@ type Recover struct {
 	Command  string `yaml:"command,omitempty"`
 }
 
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("Error: Config file can't be read. (%s): %w", path, err)
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("Error: Config couldn't parsed: %w", err)
+	}
+
+	cfg.applyDefaults()
+
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("Config couldn't be validated: %w", err)
+	}
+
+	return &cfg, nil
+}
+
+func (c *Config) applyDefaults() {
+	for i:= range c.Services {
+		s := &c.Services[i]
+		if s.CheckInterval == 0 {
+			s.CheckInterval = c.Global.CheckInterval
+		}
+		if s.FailureThreshold == 0 {
+			s.FailureThreshold = c.Global.FailureThreshold
+		}
+	}
+}
+
+func (c *Config) validate() error {
+	if len(c.Services) == 0 {
+		return fmt.Errorf("Error: at least one service should be declared")
+	}
+	validCheckTypes := map[string]bool{"http": true, "ping": true, "tcp": true}
+	validStrategies := map[string]bool{"docker_restart": true, "systemd_restart": true, "custom_command": true}
+	seenNames := map[string]bool{}
+
+	for _, s := range c.Services {
+		if s.Name == "" {
+			return fmt.Errorf("Error: A service's 'name' field is empty.")
+		}
+		if seenNames[s.Name] {
+			return fmt.Errorf("Error: Service %q: duplicate service name", s.Name)
+		}
+		seenNames[s.Name] = true
+
+		if !validCheckTypes[s.CheckType] {
+			return fmt.Errorf("Error: Service %q: Non-valid check_type %q", s.Name, s.CheckType)
+		}
+		if s.Target == "" {
+			return fmt.Errorf("Error: Service %q: 'target' field can't be empty", s.Name)
+		}
+		if s.SSH.Host == "" {
+			return fmt.Errorf("Error: Service %q: ssh.host field can't be empty", s.Name)
+		}
+		if s.SSH.Port < 1 || s.SSH.Port > 65535 {
+			return fmt.Errorf("Error: Service %q: ssh.port must be between 1 and 65535, got %d", s.Name, s.SSH.Port)
+		}
+		if !validStrategies[s.Recover.Strategy] {
+			return fmt.Errorf("Error: Service %q: Illegal recover.strategy %q", s.Name, s.Recover.Strategy)
+		}
+		if s.Recover.Strategy == "custom_command" && s.Recover.Command == "" {
+			return fmt.Errorf("Error: Service %q: recover.command can't be empty when recover.strategy is custom_command", s.Name)
+		}
+		if s.CheckInterval <= 0 {
+			return fmt.Errorf("Error: Service %q: check_interval must be greater than 0 (set it on the service or on global)", s.Name)
+		}
+		if s.FailureThreshold <= 0 {
+			return fmt.Errorf("Error: Service %q: failure_threshold must be greater than 0 (set it on the service or on global)", s.Name)
+		}
+	}
+	return nil //config is valid
+}

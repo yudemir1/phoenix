@@ -1,0 +1,50 @@
+global:
+  check_interval: 10s
+  failure_threshold: 3
+  ssh_timeout: 5s
+
+services:
+  - name: web-api-1
+    check_type: http
+    target: "http://10.0.0.5:8080/health"
+
+    ssh:
+      host: "10.0.0.5"
+      port: 22
+      user: "deploy"
+      key_path: "/home/deploy/.ssh/phoenix_id_ed25519"
+
+    recover:
+      strategy: docker_restart
+      target: "web-api-container"
+
+  - name: internal-worker
+    check_type: ping
+    target: "10.0.0.9"
+    check_interval: 5s
+    failure_threshold: 2
+
+    ssh:
+      host: "10.0.0.9"
+      port: 22
+      user: "deploy"
+      key_path: "/home/deploy/.ssh/phoenix_id_ed25519"
+
+    recover:
+      strategy: systemd_restart
+      target: "worker.service"
+
+  - name: db-proxy
+    check_type: tcp
+    target: "10.0.0.12:5432"
+
+    ssh:
+      host: "10.0.0.12"
+      port: 22
+      user: "deploy"
+      key_path: "/home/deploy/.ssh/phoenix_id_ed25519"
+
+    recover:
+      strategy: custom_command
+      target: "db-proxy"
+      command: "/usr/local/bin/restart-proxy.sh"

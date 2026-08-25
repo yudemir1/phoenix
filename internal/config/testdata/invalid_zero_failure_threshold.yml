@@ -1,0 +1,21 @@
+global:
+  check_interval: 10s
+  failure_threshold: 0
+  ssh_timeout: 5s
+
+services:
+  - name: web-api-1
+    check_type: http
+    target: "http://10.0.0.5:8080/health"
+    # failure_threshold is not set on the service either, so after defaults
+    # are applied it stays at 0 (inherited from the unset global value).
+
+    ssh:
+      host: "10.0.0.5"
+      port: 22
+      user: "deploy"
+      key_path: "/home/deploy/.ssh/phoenix_id_ed25519"
+
+    recover:
+      strategy: docker_restart
+      target: "web-api-container"
