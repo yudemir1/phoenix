@@ -13,9 +13,10 @@ type Config struct {
 }
 
 type GlobalConfig struct {
-	CheckInterval    time.Duration `yaml:"check_interval"`
-	FailureThreshold int           `yaml:"failure_threshold"`
-	SSHTimeout       time.Duration `yaml:"ssh_timeout"`
+	CheckInterval		time.Duration `yaml:"check_interval"`
+	FailureThreshold	int           `yaml:"failure_threshold"`
+	SSHTimeout			time.Duration `yaml:"ssh_timeout"`
+	HTTPTimeout			time.Duration `yaml:"http_timeout"`
 }
 
 type ServiceConfig struct {
@@ -24,8 +25,9 @@ type ServiceConfig struct {
 	CheckType string `yaml:"check_type"`
 	Target    string `yaml:"target"`
 
-	CheckInterval    time.Duration `yaml:"check_interval,omitempty"`
-	FailureThreshold int           `yaml:"failure_threshold,omitempty"`
+	CheckInterval		time.Duration `yaml:"check_interval,omitempty"`
+	FailureThreshold	int           `yaml:"failure_threshold,omitempty"`
+	HTTPTimeout			time.Duration `yaml:"http_timeout,omitempty"`
 
 	SSH     SSHConfig `yaml:"ssh"`
 	Recover Recover   `yaml:"recover"`
@@ -72,6 +74,9 @@ func (c *Config) applyDefaults() {
 		}
 		if s.FailureThreshold == 0 {
 			s.FailureThreshold = c.Global.FailureThreshold
+		}
+		if s.HTTPTimeout == 0 {
+			s.HTTPTimeout = c.Global.HTTPTimeout
 		}
 	}
 }

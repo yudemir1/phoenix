@@ -2,11 +2,12 @@ global:
   check_interval: 10s
   failure_threshold: 3
   ssh_timeout: 5s
+  http_timeout: 3s
 
 services:
-  - name: web-api-1
+  - name: google
     check_type: http
-    target: "http://www.google.com"
+    target: "www.google.com"
 
     ssh:
       host: "10.0.0.5"

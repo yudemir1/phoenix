@@ -8,7 +8,7 @@ import (
 func NewChecker(s config.ServiceConfig) (Checker, error) {
 	switch s.CheckType {
 	case "http":
-		return NewHTTPChecker(s.Target, s.CheckInterval), nil
+		return NewHTTPChecker(s.Target, s.HTTPTimeout), nil
 	//case "ping":
 		//return ...
 	//case "tcp":
