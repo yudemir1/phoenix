@@ -6,7 +6,7 @@ global:
 services:
   - name: web-api-1
     check_type: http
-    target: "http://10.0.0.5:8080/health"
+    target: "http://www.google.com"
 
     ssh:
       host: "10.0.0.5"
@@ -18,9 +18,9 @@ services:
       strategy: docker_restart
       target: "web-api-container"
 
-  - name: internal-worker
-    check_type: ping
-    target: "10.0.0.9"
+  - name: Youtube
+    check_type: http
+    target: "https://www.youtube.com"
     check_interval: 5s
     failure_threshold: 2
 
