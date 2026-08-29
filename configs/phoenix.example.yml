@@ -2,7 +2,7 @@ global:
   check_interval: 10s
   failure_threshold: 3
   ssh_timeout: 5s
-  http_timeout: 3s
+  timeout: 3s
 
 services:
   - name: google
