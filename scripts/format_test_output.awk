@@ -1,7 +1,17 @@
-# Reads `go test -v` output and prints each subtest (t.Run) on one line
+# Reads `go test -v` output and prints each *leaf* test (a subtest added
+# via t.Run, or a top-level test that has no subtests at all) on one line
 # with a green-background checkmark (pass) or red-background cross (fail),
 # describing what it checks. Build/parse errors are passed through as-is
 # so failures are never hidden.
+#
+# go test -v prints a parent test's own rollup line ("--- PASS: TestX")
+# before its subtests' lines ("--- PASS: TestX/sub"), so we can't decide
+# whether to suppress a parent line in a single streaming pass. Instead the
+# whole output is buffered and processed in two passes in END: pass 1 finds
+# every parent name that has at least one subtest; pass 2 prints each line,
+# skipping a parent's own rollup line when it has subtests (they're printed
+# individually instead) and printing it plainly when it doesn't (it was a
+# leaf test all along).
 
 BEGIN {
 	pass = 0
@@ -11,34 +21,49 @@ BEGIN {
 	RESET    = "\033[0m"
 }
 
-# --- PASS: TestX/subtest_name (0.00s)
-$1 == "---" && $2 == "PASS:" && index($3, "/") > 0 {
-	n = split($3, parts, "/")
-	desc = parts[n]
-	gsub(/_/, " ", desc)
-	printf "%s ✅ %s%s %s\n", GREEN_BG, RESET, "", desc
-	pass++
-	next
-}
+{ lines[NR] = $0; last = NR }
 
-# --- FAIL: TestX/subtest_name (0.00s)
-$1 == "---" && $2 == "FAIL:" && index($3, "/") > 0 {
-	n = split($3, parts, "/")
-	desc = parts[n]
-	gsub(/_/, " ", desc)
-	printf "%s ❌ %s%s %s\n", RED_BG, RESET, "", desc
-	fail++
-	next
+function describe(name,    n, parts, d) {
+	n = split(name, parts, "/")
+	d = parts[n]
+	gsub(/_/, " ", d)
+	return d
 }
-
-# Top-level TestX lines (wrappers with no subtest) are skipped; everything
-# else (compile errors, "ok"/"FAIL" package summaries, etc.) passes through
-$1 == "---" && ($2 == "PASS:" || $2 == "FAIL:") { next }
-/^=== RUN|^=== PAUSE|^=== CONT/ { next }
-/^PASS$/ { next }
-{ print }
 
 END {
+	for (i = 1; i <= last; i++) {
+		n = split(lines[i], f)
+		if (f[1] == "---" && (f[2] == "PASS:" || f[2] == "FAIL:")) {
+			slash = index(f[3], "/")
+			if (slash > 0) {
+				has_children[substr(f[3], 1, slash - 1)] = 1
+			}
+		}
+	}
+
+	for (i = 1; i <= last; i++) {
+		line = lines[i]
+		n = split(line, f)
+		if (f[1] == "---" && (f[2] == "PASS:" || f[2] == "FAIL:")) {
+			name = f[3]
+			if (index(name, "/") == 0 && has_children[name]) {
+				continue # redundant parent rollup; its subtests are printed individually
+			}
+			desc = describe(name)
+			if (f[2] == "PASS:") {
+				printf "%s ✅ %s %s\n", GREEN_BG, RESET, desc
+				pass++
+			} else {
+				printf "%s ❌ %s %s\n", RED_BG, RESET, desc
+				fail++
+			}
+			continue
+		}
+		if (line ~ /^=== RUN|^=== PAUSE|^=== CONT/) continue
+		if (line == "PASS") continue
+		print line
+	}
+
 	print ""
 	total = pass + fail
 	if (fail == 0) {
