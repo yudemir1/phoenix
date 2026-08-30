@@ -6,6 +6,7 @@ import (
 	"os"
 	"github.com/yudemir1/phoenix/internal/config"
 	"github.com/yudemir1/phoenix/internal/monitor"
+	"github.com/yudemir1/phoenix/internal/detector"
 )
 
 func main() {
@@ -28,5 +29,15 @@ func main() {
 
 	result := checker.Check(context.Background())
 	fmt.Printf("%s -> healthy=%v latency=%s status=%d err=%v\n", s.Name, result.Healthy, result.Latency, result.StatusCode, result.Err)
+	}
+
+		// main() içinde, checker test kodundan sonra:
+	det := detector.New(3) // threshold: 3
+
+	// web-api-1 için 4 kere üst üste başarısız simülasyonu
+	for i := 1; i <= 4; i++ {
+		fakeResult := monitor.Result{Healthy: false}
+		state, changed := det.RecordResult("web-api-1", fakeResult)
+		fmt.Printf("deneme %d -> state=%s changed=%v\n", i, state, changed)
 	}
 }
