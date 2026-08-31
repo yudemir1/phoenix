@@ -39,4 +39,17 @@ func (r *Runner) Start(ctx context.Context) {
 	}
 }
 
-//func (r *Runner) runOnce(ctx context.Context)
+func (r *Runner) runOnce(ctx context.Context) {
+	result := r.checker.Check(ctx)
+	newState, changed := r.detector.RecordResult(r.service.Name, result)
+	
+	if changed {
+		fmt.Printf("[%s] state changed -> %s (err=%v)", r.service.Name, newState, result.Err)
+
+		if newState.String() == "DOWN" {
+			fmt.Printf("[%s] healer actions will be triggered (not implemented yet)\n", r.service.Name)
+		}
+	} else {
+		fmt.Printf("[%s] control: healthy=%v latency=%s\n", r.service.Name, result.Healthy, result.Latency)
+	}
+}
