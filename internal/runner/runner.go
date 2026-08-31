@@ -1,23 +1,25 @@
-package monitor
+package runner
 
 import (
 	"context"
 	"fmt"
 	"time"
+
 	"github.com/yudemir1/phoenix/internal/config"
 	"github.com/yudemir1/phoenix/internal/detector"
+	"github.com/yudemir1/phoenix/internal/monitor"
 )
 
 type Runner struct {
-	service	config.ServiceConfig
-	checker	Checker
-	detector	*detector.Detector
+	service  config.ServiceConfig
+	checker  monitor.Checker
+	detector *detector.Detector
 }
 
-func NewRunner(s config.ServiceConfig, checker Checker, det *detector.Detector) *Runner {
-	return &Runner {
-		service: s,
-		checker: checker,
+func NewRunner(s config.ServiceConfig, checker monitor.Checker, det *detector.Detector) *Runner {
+	return &Runner{
+		service:  s,
+		checker:  checker,
 		detector: det,
 	}
 }
@@ -30,10 +32,10 @@ func (r *Runner) Start(ctx context.Context) {
 
 	for {
 		select {
-		case <- ctx.Done():
+		case <-ctx.Done():
 			fmt.Printf("[%s] monitoring stopped\n", r.service.Name)
 			return
-		case <- ticker.C:
+		case <-ticker.C:
 			r.runOnce(ctx)
 		}
 	}
@@ -42,7 +44,7 @@ func (r *Runner) Start(ctx context.Context) {
 func (r *Runner) runOnce(ctx context.Context) {
 	result := r.checker.Check(ctx)
 	newState, changed := r.detector.RecordResult(r.service.Name, result)
-	
+
 	if changed {
 		fmt.Printf("[%s] state changed -> %s (err=%v)", r.service.Name, newState, result.Err)
 

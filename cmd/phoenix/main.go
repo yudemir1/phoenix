@@ -11,10 +11,11 @@ import (
 	"github.com/yudemir1/phoenix/internal/config"
 	"github.com/yudemir1/phoenix/internal/detector"
 	"github.com/yudemir1/phoenix/internal/monitor"
+	"github.com/yudemir1/phoenix/internal/runner"
 )
 
 func main() {
-	cfg, err := config.Load("configs/phoenix.example.yaml")
+	cfg, err := config.Load("configs/phoenix.example.yml")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Config couldn't loaded:", err)
 		os.Exit(1)
@@ -37,12 +38,12 @@ func main() {
 			continue
 		}
 
-		runner := monitor.NewRunner(s, checker, det)
+		svcRunner := runner.NewRunner(s, checker, det)
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runner.Start(ctx)
+			svcRunner.Start(ctx)
 		}()
 	}
 
