@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
@@ -17,16 +18,23 @@ import (
 )
 
 func main() {
+	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	configPath := flag.String("config", "configs/phoenix.example.yml", "path to the Phoenix config file")
 	flag.Parse()
 
+	var lvl slog.Level
+	if err := lvl.UnmarshalText([]byte(*logLevel)); err != nil {
+		fmt.Fprintf(os.Stderr, "invalid -log-level %q: %v\n", *logLevel, err)
+		os.Exit(1)
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Config couldn't loaded:", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("Phoenix starting...")
+	logger.Info("Phoenix starting...", "services", len(cfg.Services), "config", *configPath)
 
 	// Ctrl+C (SIGINT) veya `kill` (SIGTERM) geldiğinde ctx otomatik iptal olur.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -34,8 +42,8 @@ func main() {
 
 	det := detector.New(cfg.Global.FailureThreshold)
 	h := healer.NewPolicyHealer(healer.NewSSHHealer(), healer.Policy{
-		Cooldown: cfg.Global.RecoveryCooldown,
-		MaxAttempts: cfg.Global.RecoveryMaxAttempts,
+		Cooldown:       cfg.Global.RecoveryCooldown,
+		MaxAttempts:    cfg.Global.RecoveryMaxAttempts,
 		AttemptWindows: cfg.Global.RecoveryAttemptWindow,
 	})
 
@@ -44,11 +52,11 @@ func main() {
 	for _, s := range cfg.Services {
 		checker, err := monitor.NewChecker(s)
 		if err != nil {
-			fmt.Printf("checker oluşturulamadı (%s): %v\n", s.Name, err)
+			logger.Info("could not create checker", "service", s.Name, "err", err)
 			continue
 		}
 
-		svcRunner := runner.NewRunner(s, checker, det, h)
+		svcRunner := runner.NewRunner(s, checker, det, h, logger)
 
 		wg.Add(1)
 		go func() {
@@ -59,5 +67,5 @@ func main() {
 
 	// Tüm goroutine'ler ctx iptal olup bitene kadar burada bekleriz.
 	wg.Wait()
-	fmt.Println("Phoenix durdu.")
+	logger.Info("phoenix stopped")
 }

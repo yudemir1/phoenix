@@ -8,18 +8,18 @@ import (
 )
 
 type HTTPChecker struct {
-	Target				string
-	ExpectedStatusMin	int
-	ExpectedStatusMax	int
-	Timeout				time.Duration
+	Target            string
+	ExpectedStatusMin int
+	ExpectedStatusMax int
+	Timeout           time.Duration
 }
 
 func NewHTTPChecker(target string, timeout time.Duration) *HTTPChecker {
 	return &HTTPChecker{
-		Target:	target,
+		Target:            target,
 		ExpectedStatusMin: 200,
 		ExpectedStatusMax: 299,
-		Timeout:	timeout,
+		Timeout:           timeout,
 	}
 }
 
@@ -34,7 +34,7 @@ func (h *HTTPChecker) Check(ctx context.Context) Result {
 		return Result{
 			Healthy: false,
 			Latency: time.Since(start),
-			Err: fmt.Errorf("Error: HTTP Request couldn't made."),
+			Err:     fmt.Errorf("Error: HTTP Request couldn't made."),
 		}
 	}
 
@@ -46,7 +46,7 @@ func (h *HTTPChecker) Check(ctx context.Context) Result {
 		return Result{
 			Healthy: false,
 			Latency: latency,
-			Err: fmt.Errorf("Error: HTTP Request failed."),
+			Err:     fmt.Errorf("Error: HTTP Request failed."),
 		}
 	}
 	defer resp.Body.Close()
@@ -57,9 +57,9 @@ func (h *HTTPChecker) Check(ctx context.Context) Result {
 		checkErr = fmt.Errorf("Error: Unexpected status code %d (Expected: %d-%d)", resp.StatusCode, h.ExpectedStatusMin, h.ExpectedStatusMax)
 	}
 	return Result{
-		Healthy: healthy,
-		Latency: latency,
+		Healthy:    healthy,
+		Latency:    latency,
 		StatusCode: resp.StatusCode,
-		Err: checkErr,
+		Err:        checkErr,
 	}
 }

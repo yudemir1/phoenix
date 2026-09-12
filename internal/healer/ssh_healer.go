@@ -3,27 +3,27 @@ package healer
 import (
 	"context"
 	"fmt"
+	"github.com/yudemir1/phoenix/internal/config"
+	"golang.org/x/crypto/ssh"
 	"net"
 	"os"
 	"time"
-	"github.com/yudemir1/phoenix/internal/config"
-	"golang.org/x/crypto/ssh"
 )
 
-//SShHealer connects to a service's host over SSH and runs recovery commands
+// SShHealer connects to a service's host over SSH and runs recovery commands
 type SSHHealer struct {
 	dialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 func NewSSHHealer() *SSHHealer {
 	var d net.Dialer
-	return &SSHHealer {
+	return &SSHHealer{
 		dialContext: d.DialContext,
 	}
 }
 
 func (h *SSHHealer) Heal(ctx context.Context, s config.ServiceConfig) error {
-	cmd, err := buildRecoveryCommand(s.Recover) 
+	cmd, err := buildRecoveryCommand(s.Recover)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (h *SSHHealer) connect(ctx context.Context, sshCfg config.SSHConfig) (*ssh.
 		Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		//TO-DO: verify against a known_hosts file instead of trusting any host key.
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout: 10 * time.Second, 
+		Timeout:         10 * time.Second,
 	}
 
 	addr := fmt.Sprintf("%s:%d", sshCfg.Host, sshCfg.Port)
@@ -79,4 +79,3 @@ func (h *SSHHealer) connect(ctx context.Context, sshCfg config.SSHConfig) (*ssh.
 
 	return ssh.NewClient(sshConn, chans, reqs), nil
 }
-

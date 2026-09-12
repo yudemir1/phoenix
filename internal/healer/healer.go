@@ -1,8 +1,8 @@
 package healer
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"github.com/yudemir1/phoenix/internal/config"
 )
 

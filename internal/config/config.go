@@ -1,10 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"time"
-	"bytes"
 
 	"gopkg.in/yaml.v3"
 )

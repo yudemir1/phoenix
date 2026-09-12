@@ -1,7 +1,9 @@
 package monitor
 
-import ("context")
+import (
+	"context"
+)
 
 type Checker interface {
-	Check(ctx context.Context)	Result
+	Check(ctx context.Context) Result
 }

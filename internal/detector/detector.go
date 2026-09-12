@@ -1,25 +1,25 @@
 package detector
 
 import (
-	"sync"
 	"github.com/yudemir1/phoenix/internal/monitor"
+	"sync"
 )
 
 type serviceStatus struct {
-	ConsecutiveFailures	int
-	CurrentState		State
+	ConsecutiveFailures int
+	CurrentState        State
 }
 
 type Detector struct {
-	mu	sync.Mutex
-	threshold	int
-	statuses 	map[string]*serviceStatus
+	mu        sync.Mutex
+	threshold int
+	statuses  map[string]*serviceStatus
 }
 
 func New(threshold int) *Detector {
 	return &Detector{
 		threshold: threshold,
-		statuses: make(map[string]*serviceStatus),
+		statuses:  make(map[string]*serviceStatus),
 	}
 }
 
@@ -41,10 +41,10 @@ func (d *Detector) RecordResult(serviceName string, result monitor.Result) (newS
 		status.ConsecutiveFailures++
 		if status.ConsecutiveFailures >= d.threshold {
 			status.CurrentState = StateDown
-		}else {
-		status.CurrentState = StateDegraded
+		} else {
+			status.CurrentState = StateDegraded
 		}
-	} 
+	}
 
 	return status.CurrentState, status.CurrentState != previousState
 }
