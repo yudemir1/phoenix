@@ -3,22 +3,39 @@ package healer
 import (
 	"context"
 	"fmt"
-	"github.com/yudemir1/phoenix/internal/config"
-	"golang.org/x/crypto/ssh"
 	"net"
 	"os"
 	"time"
+
+	"github.com/yudemir1/phoenix/internal/config"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // SShHealer connects to a service's host over SSH and runs recovery commands
 type SSHHealer struct {
 	dialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	hostKeyCallback ssh.HostKeyCallback
 }
 
-func NewSSHHealer() *SSHHealer {
+func NewSSHHealer(knownHostsPath string) (*SSHHealer, error) {
+	cb, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("Error: could not load known_hosts %s: %w", knownHostsPath, err)
+	}
+	
 	var d net.Dialer
 	return &SSHHealer{
 		dialContext: d.DialContext,
+		hostKeyCallback: cb,
+	}, nil
+}
+
+func NewInsecureSSHHealer() *SSHHealer {
+	var d net.Dialer
+	return &SSHHealer{
+		dialContext: d.DialContext,
+		hostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 }
 

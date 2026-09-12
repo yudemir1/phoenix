@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -23,6 +25,9 @@ type GlobalConfig struct {
 	RecoveryCooldown      time.Duration `yaml:"recovery_cooldown"`
 	RecoveryMaxAttempts   int           `yaml:"recovery_max_attempts"`
 	RecoveryAttemptWindow time.Duration `yaml:"recovery_attempt_window"`
+
+	KnownHostsPath string `yaml:"known_hosts"`
+	InsecureSkipHostKeyVerify bool `yaml:"insecure_skip_host_key_verify"`
 }
 
 type ServiceConfig struct {
@@ -86,8 +91,16 @@ func (c *Config) applyDefaults() {
 		c.Global.RecoveryAttemptWindow = 30 * time.Minute
 	}
 
+	if c.Global.KnownHostsPath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			c.Global.KnownHostsPath = filepath.Join(home, ".ssh", "known_hosts")
+		}
+	}
+
+	c.Global.KnownHostsPath = expandHome(c.Global.KnownHostsPath)
 	for i := range c.Services {
 		s := &c.Services[i]
+		s.SSH.KeyPath = expandHome(s.SSH.KeyPath)
 		if s.CheckInterval == 0 {
 			s.CheckInterval = c.Global.CheckInterval
 		}
@@ -153,4 +166,22 @@ func (c *Config) validate() error {
 		}
 	}
 	return nil //config is valid
+}
+
+func expandHome(path string) string {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+		return path
+	}
+
+	if !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[2:])
 }

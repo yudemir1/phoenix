@@ -41,7 +41,19 @@ func main() {
 	defer stop()
 
 	det := detector.New(cfg.Global.FailureThreshold)
-	h := healer.NewPolicyHealer(healer.NewSSHHealer(), healer.Policy{
+	var sshHealer *healer.SSHHealer
+	if cfg.Global.InsecureSkipHostKeyVerify {
+		logger.Warn("SSH host key verification is disabled; recovery commands can be sent to an impostor host")
+		sshHealer = healer.NewInsecureSSHHealer()
+	} else {
+		sshHealer, err = healer.NewSSHHealer(cfg.Global.KnownHostsPath)
+		if err != nil {
+			logger.Error("could not set up SSH host key verification", "known_hosts", cfg.Global.KnownHostsPath, "err", err)
+			os.Exit(1)
+		}
+	}
+
+	h := healer.NewPolicyHealer(sshHealer, healer.Policy{
 		Cooldown:       cfg.Global.RecoveryCooldown,
 		MaxAttempts:    cfg.Global.RecoveryMaxAttempts,
 		AttemptWindows: cfg.Global.RecoveryAttemptWindow,
