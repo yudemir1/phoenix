@@ -81,6 +81,9 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if c.Global.SSHTimeout == 0 {
+		c.Global.SSHTimeout = 10 * time.Second
+	}
 	if c.Global.RecoveryCooldown == 0 {
 		c.Global.RecoveryCooldown = 5 * time.Minute
 	}
