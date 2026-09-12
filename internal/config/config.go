@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"time"
+	"bytes"
 
 	"gopkg.in/yaml.v3"
 )
@@ -57,8 +58,11 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("Error: Config file can't be read. (%s): %w", path, err)
 	}
 
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("Error: Config couldn't parsed: %w", err)
 	}
 
