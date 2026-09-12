@@ -12,6 +12,7 @@ import (
 	"github.com/yudemir1/phoenix/internal/detector"
 	"github.com/yudemir1/phoenix/internal/monitor"
 	"github.com/yudemir1/phoenix/internal/runner"
+	"github.com/yudemir1/phoenix/internal/healer"
 )
 
 func main() {
@@ -28,6 +29,7 @@ func main() {
 	defer stop()
 
 	det := detector.New(cfg.Global.FailureThreshold)
+	h := healer.NewSSHHealer()
 
 	var wg sync.WaitGroup
 
@@ -38,7 +40,7 @@ func main() {
 			continue
 		}
 
-		svcRunner := runner.NewRunner(s, checker, det)
+		svcRunner := runner.NewRunner(s, checker, det, h)
 
 		wg.Add(1)
 		go func() {
