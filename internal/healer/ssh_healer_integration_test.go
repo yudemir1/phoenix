@@ -17,6 +17,7 @@ import (
 
 	"github.com/yudemir1/phoenix/internal/config"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // exitStatusMsg is the RFC 4254 §6.10 payload carried by an "exit-status"
@@ -30,7 +31,8 @@ type exitStatusMsg struct {
 // "exec" request per session, hands the received command to handle, and
 // replies with whatever output/exit status handle returns.
 type testSSHServer struct {
-	addr string
+	addr    string
+	hostKey ssh.PublicKey
 }
 
 func startTestSSHServer(t *testing.T, clientPubKey ssh.PublicKey, handle func(cmd string) (output []byte, exitStatus uint32)) *testSSHServer {
@@ -71,7 +73,7 @@ func startTestSSHServer(t *testing.T, clientPubKey ssh.PublicKey, handle func(cm
 		}
 	}()
 
-	return &testSSHServer{addr: ln.Addr().String()}
+	return &testSSHServer{addr: ln.Addr().String(), hostKey: hostSigner.PublicKey()}
 }
 
 func serveOneSSHConnection(conn net.Conn, serverConfig *ssh.ServerConfig, handle func(cmd string) ([]byte, uint32)) {
@@ -195,7 +197,7 @@ func TestSSHHealer_Heal(t *testing.T) {
 
 		svc := serviceAgainst(t, srv, keyPath, config.Recover{Strategy: "docker_restart", Target: "web-api-container"})
 
-		h := NewSSHHealer()
+		h := healerTrusting(t, srv)
 		if err := h.Heal(context.Background(), svc); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -215,7 +217,7 @@ func TestSSHHealer_Heal(t *testing.T) {
 
 		svc := serviceAgainst(t, srv, keyPath, config.Recover{Strategy: "systemd_restart", Target: "worker.service"})
 
-		h := NewSSHHealer()
+		h := healerTrusting(t, srv)
 		err := h.Heal(context.Background(), svc)
 		if err == nil {
 			t.Fatal("expected an error, got nil")
@@ -226,7 +228,9 @@ func TestSSHHealer_Heal(t *testing.T) {
 	})
 
 	t.Run("returns_an_error_for_an_unknown_recover_strategy_without_ever_connecting", func(t *testing.T) {
-		h := NewSSHHealer()
+		// This path fails before any dial, so host key verification is
+		// irrelevant here.
+		h := NewInsecureSSHHealer()
 		svc := config.ServiceConfig{
 			Name:    "svc",
 			SSH:     config.SSHConfig{Host: "127.0.0.1", Port: 1, User: "deploy", KeyPath: "/nonexistent"},
@@ -243,7 +247,8 @@ func TestSSHHealer_Heal(t *testing.T) {
 	})
 
 	t.Run("returns_an_error_when_the_private_key_file_does_not_exist", func(t *testing.T) {
-		h := NewSSHHealer()
+		// Fails while reading the client key, before any dial.
+		h := NewInsecureSSHHealer()
 		svc := config.ServiceConfig{
 			Name:    "svc",
 			SSH:     config.SSHConfig{Host: "127.0.0.1", Port: 22, User: "deploy", KeyPath: "/nonexistent/key"},
@@ -253,6 +258,167 @@ func TestSSHHealer_Heal(t *testing.T) {
 		err := h.Heal(context.Background(), svc)
 		if err == nil {
 			t.Fatal("expected an error, got nil")
+		}
+	})
+}
+
+// writeKnownHosts writes a known_hosts file containing exactly one entry
+// mapping addr to key, and returns its path. knownhosts.Normalize takes care
+// of the "[host]:port" form that non-22 ports require.
+func writeKnownHosts(t *testing.T, addr string, key ssh.PublicKey) string {
+	t.Helper()
+
+	line := knownhosts.Line([]string{knownhosts.Normalize(addr)}, key)
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("could not write known_hosts: %v", err)
+	}
+	return path
+}
+
+// healerTrusting returns an SSHHealer whose known_hosts trusts exactly srv.
+func healerTrusting(t *testing.T, srv *testSSHServer) *SSHHealer {
+	t.Helper()
+
+	h, err := NewSSHHealer(writeKnownHosts(t, srv.addr, srv.hostKey))
+	if err != nil {
+		t.Fatalf("could not create healer: %v", err)
+	}
+	return h
+}
+
+// randomHostKey returns a public key belonging to nobody in this test, used
+// to stand in for an impostor host.
+func randomHostKey(t *testing.T) ssh.PublicKey {
+	t.Helper()
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("could not generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatalf("could not create signer: %v", err)
+	}
+	return signer.PublicKey()
+}
+
+func TestSSHHealer_HostKeyVerification(t *testing.T) {
+	t.Run("refuses_to_connect_when_the_host_key_does_not_match_the_recorded_one", func(t *testing.T) {
+		clientSigner, keyPath := generateTestClientKey(t)
+		var reached bool
+		srv := startTestSSHServer(t, clientSigner.PublicKey(), func(cmd string) ([]byte, uint32) {
+			reached = true
+			return nil, 0
+		})
+
+		// known_hosts records this address, but with somebody else's key:
+		// exactly what a man-in-the-middle looks like.
+		kh := writeKnownHosts(t, srv.addr, randomHostKey(t))
+		h, err := NewSSHHealer(kh)
+		if err != nil {
+			t.Fatalf("could not create healer: %v", err)
+		}
+
+		svc := serviceAgainst(t, srv, keyPath, config.Recover{Strategy: "docker_restart", Target: "c1"})
+		err = h.Heal(context.Background(), svc)
+
+		if err == nil {
+			t.Fatal("expected the connection to be refused, got nil")
+		}
+		if !strings.Contains(err.Error(), "key mismatch") && !strings.Contains(err.Error(), "knownhosts") {
+			t.Errorf("error = %q, want a host key verification failure", err.Error())
+		}
+		if reached {
+			t.Error("the recovery command reached the impostor host; it must never be sent")
+		}
+	})
+
+	t.Run("refuses_to_connect_to_a_host_that_is_not_listed_in_known_hosts", func(t *testing.T) {
+		clientSigner, keyPath := generateTestClientKey(t)
+		var reached bool
+		srv := startTestSSHServer(t, clientSigner.PublicKey(), func(cmd string) ([]byte, uint32) {
+			reached = true
+			return nil, 0
+		})
+
+		// A well-formed known_hosts that simply says nothing about this host.
+		kh := writeKnownHosts(t, "198.51.100.7:22", randomHostKey(t))
+		h, err := NewSSHHealer(kh)
+		if err != nil {
+			t.Fatalf("could not create healer: %v", err)
+		}
+
+		svc := serviceAgainst(t, srv, keyPath, config.Recover{Strategy: "docker_restart", Target: "c1"})
+		if err := h.Heal(context.Background(), svc); err == nil {
+			t.Fatal("expected the connection to be refused for an unknown host, got nil")
+		}
+		if reached {
+			t.Error("the recovery command reached an unverified host; it must never be sent")
+		}
+	})
+
+	t.Run("a_matching_known_hosts_entry_allows_the_recovery_to_run", func(t *testing.T) {
+		clientSigner, keyPath := generateTestClientKey(t)
+		var mu sync.Mutex
+		var receivedCmd string
+		srv := startTestSSHServer(t, clientSigner.PublicKey(), func(cmd string) ([]byte, uint32) {
+			mu.Lock()
+			receivedCmd = cmd
+			mu.Unlock()
+			return []byte("ok\n"), 0
+		})
+
+		h := healerTrusting(t, srv)
+		svc := serviceAgainst(t, srv, keyPath, config.Recover{Strategy: "docker_restart", Target: "c1"})
+
+		if err := h.Heal(context.Background(), svc); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		if want := "docker restart c1"; receivedCmd != want {
+			t.Errorf("server received %q, want %q", receivedCmd, want)
+		}
+	})
+
+	t.Run("a_missing_known_hosts_file_fails_at_construction_not_at_recovery_time", func(t *testing.T) {
+		h, err := NewSSHHealer(filepath.Join(t.TempDir(), "does-not-exist"))
+
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if h != nil {
+			t.Errorf("healer should be nil on error, got %+v", h)
+		}
+		if !strings.Contains(err.Error(), "known_hosts") {
+			t.Errorf("error = %q, want it to name known_hosts so the operator knows what to fix", err.Error())
+		}
+	})
+
+	t.Run("a_malformed_known_hosts_file_fails_at_construction", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "known_hosts")
+		if err := os.WriteFile(path, []byte("this is not a known_hosts line\n"), 0o600); err != nil {
+			t.Fatalf("could not write file: %v", err)
+		}
+
+		if _, err := NewSSHHealer(path); err == nil {
+			t.Error("expected a malformed known_hosts file to be rejected, got nil")
+		}
+	})
+
+	t.Run("the_insecure_healer_still_connects_without_any_known_hosts", func(t *testing.T) {
+		clientSigner, keyPath := generateTestClientKey(t)
+		srv := startTestSSHServer(t, clientSigner.PublicKey(), func(cmd string) ([]byte, uint32) {
+			return []byte("ok\n"), 0
+		})
+
+		h := NewInsecureSSHHealer()
+		svc := serviceAgainst(t, srv, keyPath, config.Recover{Strategy: "docker_restart", Target: "c1"})
+
+		if err := h.Heal(context.Background(), svc); err != nil {
+			t.Errorf("the insecure healer should skip verification entirely, got: %v", err)
 		}
 	})
 }

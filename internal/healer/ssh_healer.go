@@ -3,22 +3,39 @@ package healer
 import (
 	"context"
 	"fmt"
-	"github.com/yudemir1/phoenix/internal/config"
-	"golang.org/x/crypto/ssh"
 	"net"
 	"os"
 	"time"
+
+	"github.com/yudemir1/phoenix/internal/config"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // SShHealer connects to a service's host over SSH and runs recovery commands
 type SSHHealer struct {
-	dialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	dialContext     func(ctx context.Context, network, addr string) (net.Conn, error)
+	hostKeyCallback ssh.HostKeyCallback
 }
 
-func NewSSHHealer() *SSHHealer {
+func NewSSHHealer(knownHostsPath string) (*SSHHealer, error) {
+	cb, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("Error: could not load known_hosts %s: %w", knownHostsPath, err)
+	}
+
 	var d net.Dialer
 	return &SSHHealer{
-		dialContext: d.DialContext,
+		dialContext:     d.DialContext,
+		hostKeyCallback: cb,
+	}, nil
+}
+
+func NewInsecureSSHHealer() *SSHHealer {
+	var d net.Dialer
+	return &SSHHealer{
+		dialContext:     d.DialContext,
+		hostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 }
 
@@ -58,10 +75,9 @@ func (h *SSHHealer) connect(ctx context.Context, sshCfg config.SSHConfig) (*ssh.
 	}
 
 	clientConfig := &ssh.ClientConfig{
-		User: sshCfg.User,
-		Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		//TO-DO: verify against a known_hosts file instead of trusting any host key.
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		User:            sshCfg.User,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: h.hostKeyCallback,
 		Timeout:         10 * time.Second,
 	}
 
@@ -74,7 +90,7 @@ func (h *SSHHealer) connect(ctx context.Context, sshCfg config.SSHConfig) (*ssh.
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, clientConfig)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("Error: could noy establish ssh handshake with %s: %w", addr, err)
+		return nil, fmt.Errorf("Error: could not establish ssh handshake with %s: %w", addr, err)
 	}
 
 	return ssh.NewClient(sshConn, chans, reqs), nil
