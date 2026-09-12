@@ -246,3 +246,37 @@ func TestLoad_recovery_policy_settings(t *testing.T) {
 		}
 	})
 }
+
+// KnownFields(true) turns a key the config structs don't know about into a
+// hard load error. Without it a misspelled key is silently ignored and the
+// field keeps its zero value / default, which is how both
+// "recocery_cooldown" and "recovery_attempt_windows" once slipped through.
+func TestLoad_unknown_config_keys_are_rejected(t *testing.T) {
+	cases := []struct {
+		name       string
+		file       string
+		errContain string
+	}{
+		{"a_misspelled_global_key_is_rejected_instead_of_silently_ignored", "testdata/invalid_unknown_global_field.yml", "recocery_cooldown"},
+		{"an_unknown_service_level_key_is_rejected", "testdata/invalid_unknown_service_field.yml", "retry_count"},
+		{"an_unknown_key_nested_under_ssh_is_rejected", "testdata/invalid_unknown_nested_field.yml", "passphrase"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load(tc.file)
+			if err == nil {
+				t.Fatalf("expected an error but got nil (cfg: %+v)", cfg)
+			}
+			if !strings.Contains(err.Error(), "not found in type") {
+				t.Errorf("error = %q, want a yaml unknown-field error", err.Error())
+			}
+			if !strings.Contains(err.Error(), tc.errContain) {
+				t.Errorf("error = %q, want it to name the offending key %q", err.Error(), tc.errContain)
+			}
+			if cfg != nil {
+				t.Errorf("cfg should be nil on error, got %+v", cfg)
+			}
+		})
+	}
+}
