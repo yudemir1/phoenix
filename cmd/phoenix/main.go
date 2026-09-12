@@ -44,9 +44,9 @@ func main() {
 	var sshHealer *healer.SSHHealer
 	if cfg.Global.InsecureSkipHostKeyVerify {
 		logger.Warn("SSH host key verification is disabled; recovery commands can be sent to an impostor host")
-		sshHealer = healer.NewInsecureSSHHealer()
+		sshHealer = healer.NewInsecureSSHHealer(cfg.Global.SSHTimeout)
 	} else {
-		sshHealer, err = healer.NewSSHHealer(cfg.Global.KnownHostsPath)
+		sshHealer, err = healer.NewSSHHealer(cfg.Global.KnownHostsPath, cfg.Global.SSHTimeout)
 		if err != nil {
 			logger.Error("could not set up SSH host key verification", "known_hosts", cfg.Global.KnownHostsPath, "err", err)
 			os.Exit(1)

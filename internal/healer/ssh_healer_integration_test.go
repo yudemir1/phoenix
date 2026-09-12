@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/yudemir1/phoenix/internal/config"
 	"golang.org/x/crypto/ssh"
@@ -230,7 +231,7 @@ func TestSSHHealer_Heal(t *testing.T) {
 	t.Run("returns_an_error_for_an_unknown_recover_strategy_without_ever_connecting", func(t *testing.T) {
 		// This path fails before any dial, so host key verification is
 		// irrelevant here.
-		h := NewInsecureSSHHealer()
+		h := NewInsecureSSHHealer(0)
 		svc := config.ServiceConfig{
 			Name:    "svc",
 			SSH:     config.SSHConfig{Host: "127.0.0.1", Port: 1, User: "deploy", KeyPath: "/nonexistent"},
@@ -248,7 +249,7 @@ func TestSSHHealer_Heal(t *testing.T) {
 
 	t.Run("returns_an_error_when_the_private_key_file_does_not_exist", func(t *testing.T) {
 		// Fails while reading the client key, before any dial.
-		h := NewInsecureSSHHealer()
+		h := NewInsecureSSHHealer(0)
 		svc := config.ServiceConfig{
 			Name:    "svc",
 			SSH:     config.SSHConfig{Host: "127.0.0.1", Port: 22, User: "deploy", KeyPath: "/nonexistent/key"},
@@ -280,7 +281,7 @@ func writeKnownHosts(t *testing.T, addr string, key ssh.PublicKey) string {
 func healerTrusting(t *testing.T, srv *testSSHServer) *SSHHealer {
 	t.Helper()
 
-	h, err := NewSSHHealer(writeKnownHosts(t, srv.addr, srv.hostKey))
+	h, err := NewSSHHealer(writeKnownHosts(t, srv.addr, srv.hostKey), 0)
 	if err != nil {
 		t.Fatalf("could not create healer: %v", err)
 	}
@@ -315,7 +316,7 @@ func TestSSHHealer_HostKeyVerification(t *testing.T) {
 		// known_hosts records this address, but with somebody else's key:
 		// exactly what a man-in-the-middle looks like.
 		kh := writeKnownHosts(t, srv.addr, randomHostKey(t))
-		h, err := NewSSHHealer(kh)
+		h, err := NewSSHHealer(kh, 0)
 		if err != nil {
 			t.Fatalf("could not create healer: %v", err)
 		}
@@ -344,7 +345,7 @@ func TestSSHHealer_HostKeyVerification(t *testing.T) {
 
 		// A well-formed known_hosts that simply says nothing about this host.
 		kh := writeKnownHosts(t, "198.51.100.7:22", randomHostKey(t))
-		h, err := NewSSHHealer(kh)
+		h, err := NewSSHHealer(kh, 0)
 		if err != nil {
 			t.Fatalf("could not create healer: %v", err)
 		}
@@ -384,7 +385,7 @@ func TestSSHHealer_HostKeyVerification(t *testing.T) {
 	})
 
 	t.Run("a_missing_known_hosts_file_fails_at_construction_not_at_recovery_time", func(t *testing.T) {
-		h, err := NewSSHHealer(filepath.Join(t.TempDir(), "does-not-exist"))
+		h, err := NewSSHHealer(filepath.Join(t.TempDir(), "does-not-exist"), 0)
 
 		if err == nil {
 			t.Fatal("expected an error, got nil")
@@ -403,7 +404,7 @@ func TestSSHHealer_HostKeyVerification(t *testing.T) {
 			t.Fatalf("could not write file: %v", err)
 		}
 
-		if _, err := NewSSHHealer(path); err == nil {
+		if _, err := NewSSHHealer(path, 0); err == nil {
 			t.Error("expected a malformed known_hosts file to be rejected, got nil")
 		}
 	})
@@ -414,11 +415,78 @@ func TestSSHHealer_HostKeyVerification(t *testing.T) {
 			return []byte("ok\n"), 0
 		})
 
-		h := NewInsecureSSHHealer()
+		h := NewInsecureSSHHealer(0)
 		svc := serviceAgainst(t, srv, keyPath, config.Recover{Strategy: "docker_restart", Target: "c1"})
 
 		if err := h.Heal(context.Background(), svc); err != nil {
 			t.Errorf("the insecure healer should skip verification entirely, got: %v", err)
+		}
+	})
+}
+
+func TestSSHHealer_Timeout(t *testing.T) {
+	t.Run("the_configured_ssh_timeout_is_used_instead_of_the_built_in_default", func(t *testing.T) {
+		h, err := NewSSHHealer(writeKnownHosts(t, "127.0.0.1:22", randomHostKey(t)), 42*time.Second)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := 42 * time.Second; h.timeout != want {
+			t.Errorf("timeout = %s, want %s (is the config value actually wired through?)", h.timeout, want)
+		}
+	})
+
+	t.Run("a_zero_timeout_falls_back_to_the_built_in_default", func(t *testing.T) {
+		h := NewInsecureSSHHealer(0)
+		if h.timeout != defaultSSHTimeout {
+			t.Errorf("timeout = %s, want the %s default", h.timeout, defaultSSHTimeout)
+		}
+	})
+
+	t.Run("the_timeout_actually_reaches_the_ssh_client_config", func(t *testing.T) {
+		// A host that accepts the TCP connection but never speaks SSH makes
+		// the handshake hang; the client-side timeout is the only thing that
+		// ends it, so the call returning at all proves the value is used.
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("could not listen: %v", err)
+		}
+		defer ln.Close()
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			select {} // never respond
+		}()
+
+		_, keyPath := generateTestClientKey(t)
+		h := NewInsecureSSHHealer(300 * time.Millisecond)
+		host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+		port, _ := strconv.Atoi(portStr)
+
+		svc := config.ServiceConfig{
+			Name:    "silent-host",
+			SSH:     config.SSHConfig{Host: host, Port: port, User: "deploy", KeyPath: keyPath},
+			Recover: config.Recover{Strategy: "docker_restart", Target: "c1"},
+		}
+
+		// Run in a goroutine with an outer bound: if the timeout does not
+		// work this test must fail, not hang forever.
+		done := make(chan error, 1)
+		start := time.Now()
+		go func() { done <- h.Heal(context.Background(), svc) }()
+
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("expected the handshake to time out, got nil")
+			}
+			if elapsed := time.Since(start); elapsed > 5*time.Second {
+				t.Errorf("took %s: the configured 300ms timeout is not in effect", elapsed)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("Heal never returned: a host that accepts TCP but never speaks SSH hangs the runner goroutine forever")
 		}
 	})
 }
