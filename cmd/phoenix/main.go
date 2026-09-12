@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,13 +11,16 @@ import (
 
 	"github.com/yudemir1/phoenix/internal/config"
 	"github.com/yudemir1/phoenix/internal/detector"
+	"github.com/yudemir1/phoenix/internal/healer"
 	"github.com/yudemir1/phoenix/internal/monitor"
 	"github.com/yudemir1/phoenix/internal/runner"
-	"github.com/yudemir1/phoenix/internal/healer"
 )
 
 func main() {
-	cfg, err := config.Load("configs/phoenix.example.yml")
+	configPath := flag.String("config", "configs/phoenix.example.yml", "path to the Phoenix config file")
+	flag.Parse()
+
+	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Config couldn't loaded:", err)
 		os.Exit(1)
@@ -29,7 +33,11 @@ func main() {
 	defer stop()
 
 	det := detector.New(cfg.Global.FailureThreshold)
-	h := healer.NewSSHHealer()
+	h := healer.NewPolicyHealer(healer.NewSSHHealer(), healer.Policy{
+		Cooldown: cfg.Global.RecoveryCooldown,
+		MaxAttempts: cfg.Global.RecoveryMaxAttempts,
+		AttemptWindows: cfg.Global.RecoveryAttemptWindow,
+	})
 
 	var wg sync.WaitGroup
 

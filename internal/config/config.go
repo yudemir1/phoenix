@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"time"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,10 +14,14 @@ type Config struct {
 }
 
 type GlobalConfig struct {
-	CheckInterval		time.Duration `yaml:"check_interval"`
-	FailureThreshold	int           `yaml:"failure_threshold"`
-	SSHTimeout			time.Duration `yaml:"ssh_timeout"`
-	Timeout			time.Duration `yaml:"timeout"`
+	CheckInterval    time.Duration `yaml:"check_interval"`
+	FailureThreshold int           `yaml:"failure_threshold"`
+	SSHTimeout       time.Duration `yaml:"ssh_timeout"`
+	Timeout          time.Duration `yaml:"timeout"`
+
+	RecoveryCooldown      time.Duration `yaml:"recovery_cooldown"`
+	RecoveryMaxAttempts   int           `yaml:"recovery_max_attempts"`
+	RecoveryAttemptWindow time.Duration `yaml:"recovery_attempt_window"`
 }
 
 type ServiceConfig struct {
@@ -25,9 +30,9 @@ type ServiceConfig struct {
 	CheckType string `yaml:"check_type"`
 	Target    string `yaml:"target"`
 
-	CheckInterval		time.Duration `yaml:"check_interval,omitempty"`
-	FailureThreshold	int           `yaml:"failure_threshold,omitempty"`
-	Timeout			time.Duration `yaml:"timeout,omitempty"`
+	CheckInterval    time.Duration `yaml:"check_interval,omitempty"`
+	FailureThreshold int           `yaml:"failure_threshold,omitempty"`
+	Timeout          time.Duration `yaml:"timeout,omitempty"`
 
 	SSH     SSHConfig `yaml:"ssh"`
 	Recover Recover   `yaml:"recover"`
@@ -67,7 +72,17 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
-	for i:= range c.Services {
+	if c.Global.RecoveryCooldown == 0 {
+		c.Global.RecoveryCooldown = 5 * time.Minute
+	}
+	if c.Global.RecoveryMaxAttempts == 0 {
+		c.Global.RecoveryMaxAttempts = 3
+	}
+	if c.Global.RecoveryAttemptWindow == 0 {
+		c.Global.RecoveryAttemptWindow = 30 * time.Minute
+	}
+
+	for i := range c.Services {
 		s := &c.Services[i]
 		if s.CheckInterval == 0 {
 			s.CheckInterval = c.Global.CheckInterval
@@ -88,6 +103,16 @@ func (c *Config) validate() error {
 	validCheckTypes := map[string]bool{"http": true, "ping": true, "tcp": true}
 	validStrategies := map[string]bool{"docker_restart": true, "systemd_restart": true, "custom_command": true}
 	seenNames := map[string]bool{}
+
+	if c.Global.RecoveryCooldown < 0 {
+		return fmt.Errorf("Error: global.recovery_cooldown can't be negative")
+	}
+	if c.Global.RecoveryMaxAttempts < 0 {
+		return fmt.Errorf("Error: global.recovery_max_attempts can't be negative")
+	}
+	if c.Global.RecoveryAttemptWindow < 0 {
+		return fmt.Errorf("Error: global.recovery_attempt_window can't be negative")
+	}
 
 	for _, s := range c.Services {
 		if s.Name == "" {

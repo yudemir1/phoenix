@@ -3,6 +3,9 @@ global:
   failure_threshold: 3
   ssh_timeout: 5s
   timeout: 3s
+  recovery_cooldown: 5m
+  recovery_max_attempts: 3
+  recovery_attempt_window: 30m
 
 services:
   - name: google
