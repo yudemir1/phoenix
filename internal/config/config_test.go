@@ -1,9 +1,12 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Files under testdata/ represent different kinds of configs: valid ones
@@ -146,4 +149,100 @@ func TestLoad_invalid_configs_return_an_error(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoad_recovery_policy_settings(t *testing.T) {
+	t.Run("explicit_recovery_policy_values_are_read_from_the_file", func(t *testing.T) {
+		cfg, err := Load("testdata/valid_recovery_policy.yml")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if want := 10 * time.Minute; cfg.Global.RecoveryCooldown != want {
+			t.Errorf("RecoveryCooldown = %s, want %s (is the yaml tag spelled correctly?)", cfg.Global.RecoveryCooldown, want)
+		}
+		if want := 7; cfg.Global.RecoveryMaxAttempts != want {
+			t.Errorf("RecoveryMaxAttempts = %d, want %d (is the yaml tag spelled correctly?)", cfg.Global.RecoveryMaxAttempts, want)
+		}
+		if want := 2 * time.Hour; cfg.Global.RecoveryAttemptWindow != want {
+			t.Errorf("RecoveryAttemptWindow = %s, want %s (is the yaml tag spelled correctly?)", cfg.Global.RecoveryAttemptWindow, want)
+		}
+	})
+
+	t.Run("omitted_recovery_policy_values_fall_back_to_the_built_in_defaults", func(t *testing.T) {
+		cfg, err := Load("testdata/valid_recovery_policy_defaults.yml")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if want := 5 * time.Minute; cfg.Global.RecoveryCooldown != want {
+			t.Errorf("RecoveryCooldown = %s, want the %s default", cfg.Global.RecoveryCooldown, want)
+		}
+		if want := 3; cfg.Global.RecoveryMaxAttempts != want {
+			t.Errorf("RecoveryMaxAttempts = %d, want the %d default", cfg.Global.RecoveryMaxAttempts, want)
+		}
+		if want := 30 * time.Minute; cfg.Global.RecoveryAttemptWindow != want {
+			t.Errorf("RecoveryAttemptWindow = %s, want the %s default", cfg.Global.RecoveryAttemptWindow, want)
+		}
+	})
+
+	t.Run("the_shipped_example_config_loads_and_its_recovery_policy_is_actually_applied", func(t *testing.T) {
+		cfg, err := Load("../../configs/phoenix.example.yml")
+		if err != nil {
+			t.Fatalf("the example config shipped with the repo must stay loadable: %v", err)
+		}
+
+		// Every recovery_* key the example file sets must survive into the
+		// parsed config; a misspelled key there would silently fall back to
+		// a default instead.
+		raw, err := os.ReadFile("../../configs/phoenix.example.yml")
+		if err != nil {
+			t.Fatalf("could not read the example config: %v", err)
+		}
+		var doc struct {
+			Global map[string]any `yaml:"global"`
+		}
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("could not parse the example config: %v", err)
+		}
+
+		known := map[string]bool{
+			"check_interval": true, "failure_threshold": true, "ssh_timeout": true,
+			"timeout": true, "recovery_cooldown": true, "recovery_max_attempts": true,
+			"recovery_attempt_window": true,
+		}
+		for key := range doc.Global {
+			if !known[key] {
+				t.Errorf("example config sets global.%q, which no GlobalConfig field maps to — it is silently ignored", key)
+			}
+		}
+
+		if cfg.Global.RecoveryMaxAttempts <= 0 {
+			t.Errorf("RecoveryMaxAttempts = %d, want a positive value", cfg.Global.RecoveryMaxAttempts)
+		}
+	})
+
+	t.Run("negative_recovery_policy_values_are_rejected", func(t *testing.T) {
+		cases := []struct {
+			name       string
+			file       string
+			errContain string
+		}{
+			{"negative_cooldown_is_rejected", "testdata/invalid_negative_recovery_cooldown.yml", "recovery_cooldown can't be negative"},
+			{"negative_max_attempts_is_rejected", "testdata/invalid_negative_recovery_attempts.yml", "recovery_max_attempts can't be negative"},
+			{"negative_attempt_window_is_rejected", "testdata/invalid_negative_recovery_window.yml", "recovery_attempt_window can't be negative"},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg, err := Load(tc.file)
+				if err == nil {
+					t.Fatalf("expected an error but got nil (cfg: %+v)", cfg)
+				}
+				if !strings.Contains(err.Error(), tc.errContain) {
+					t.Errorf("error message should contain %q, but got: %q", tc.errContain, err.Error())
+				}
+			})
+		}
+	})
 }
