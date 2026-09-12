@@ -3,7 +3,7 @@ package detector
 type State int
 
 const (
-	StateHealthy	State=iota
+	StateHealthy State = iota
 	StateDegraded
 	StateDown
 )
@@ -20,4 +20,3 @@ func (s State) String() string {
 		return "UNKNOWN"
 	}
 }
-

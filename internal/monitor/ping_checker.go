@@ -1,21 +1,21 @@
 package monitor
 
 import (
-	"os/exec"
 	"context"
 	"fmt"
+	"os/exec"
 	"runtime"
 	"time"
 )
 
 type PingChecker struct {
-	Target	string
-	Timeout	time.Duration
+	Target  string
+	Timeout time.Duration
 }
 
 func NewPingChecker(target string, timeout time.Duration) *PingChecker {
 	return &PingChecker{
-		Target: target,
+		Target:  target,
 		Timeout: timeout,
 	}
 }

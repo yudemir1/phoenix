@@ -17,7 +17,7 @@ type Runner struct {
 	checker  monitor.Checker
 	detector *detector.Detector
 	healer   healer.Healer
-	logger	*slog.Logger
+	logger   *slog.Logger
 }
 
 func NewRunner(s config.ServiceConfig, checker monitor.Checker, det *detector.Detector, h healer.Healer, logger *slog.Logger) *Runner {
@@ -29,7 +29,7 @@ func NewRunner(s config.ServiceConfig, checker monitor.Checker, det *detector.De
 		checker:  checker,
 		detector: det,
 		healer:   h,
-		logger: logger.With("service", s.Name),
+		logger:   logger.With("service", s.Name),
 	}
 }
 

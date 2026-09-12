@@ -42,8 +42,8 @@ func main() {
 
 	det := detector.New(cfg.Global.FailureThreshold)
 	h := healer.NewPolicyHealer(healer.NewSSHHealer(), healer.Policy{
-		Cooldown: cfg.Global.RecoveryCooldown,
-		MaxAttempts: cfg.Global.RecoveryMaxAttempts,
+		Cooldown:       cfg.Global.RecoveryCooldown,
+		MaxAttempts:    cfg.Global.RecoveryMaxAttempts,
 		AttemptWindows: cfg.Global.RecoveryAttemptWindow,
 	})
 
@@ -56,7 +56,7 @@ func main() {
 			continue
 		}
 
-		svcRunner := runner.NewRunner(s, checker, det, h)
+		svcRunner := runner.NewRunner(s, checker, det, h, logger)
 
 		wg.Add(1)
 		go func() {

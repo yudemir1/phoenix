@@ -1,20 +1,20 @@
 package monitor
 
 import (
-	"fmt"
 	"context"
-	"time"
+	"fmt"
 	"net"
+	"time"
 )
 
 type TCPChecker struct {
-	Target string //as an host:port example: 10.0.0.5:5050
+	Target  string //as an host:port example: 10.0.0.5:5050
 	Timeout time.Duration
 }
 
 func NewTCPChecker(target string, timeout time.Duration) *TCPChecker {
 	return &TCPChecker{
-		Target: target,
+		Target:  target,
 		Timeout: timeout,
 	}
 }
@@ -30,7 +30,7 @@ func (t *TCPChecker) Check(ctx context.Context) Result {
 		return Result{
 			Healthy: false,
 			Latency: latency,
-			Err: fmt.Errorf("tcp connection failed: %w", err),
+			Err:     fmt.Errorf("tcp connection failed: %w", err),
 		}
 	}
 	defer conn.Close()

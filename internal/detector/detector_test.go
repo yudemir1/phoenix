@@ -7,7 +7,7 @@ import (
 	"github.com/yudemir1/phoenix/internal/monitor"
 )
 
-func healthy() monitor.Result  { return monitor.Result{Healthy: true} }
+func healthy() monitor.Result   { return monitor.Result{Healthy: true} }
 func unhealthy() monitor.Result { return monitor.Result{Healthy: false} }
 
 func TestDetector_GetState(t *testing.T) {
