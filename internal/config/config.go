@@ -26,8 +26,8 @@ type GlobalConfig struct {
 	RecoveryMaxAttempts   int           `yaml:"recovery_max_attempts"`
 	RecoveryAttemptWindow time.Duration `yaml:"recovery_attempt_window"`
 
-	KnownHostsPath string `yaml:"known_hosts"`
-	InsecureSkipHostKeyVerify bool `yaml:"insecure_skip_host_key_verify"`
+	KnownHostsPath            string `yaml:"known_hosts"`
+	InsecureSkipHostKeyVerify bool   `yaml:"insecure_skip_host_key_verify"`
 }
 
 type ServiceConfig struct {
