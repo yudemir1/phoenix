@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,9 @@ type GlobalConfig struct {
 
 	KnownHostsPath            string `yaml:"known_hosts"`
 	InsecureSkipHostKeyVerify bool   `yaml:"insecure_skip_host_key_verify"`
+
+	WebhookURL     string        `yaml:"webhook_url"`
+	WebhookTimeout time.Duration `yaml:"webhook_timeout"`
 }
 
 type ServiceConfig struct {
@@ -84,6 +88,9 @@ func (c *Config) applyDefaults() {
 	if c.Global.SSHTimeout == 0 {
 		c.Global.SSHTimeout = 10 * time.Second
 	}
+	if c.Global.WebhookTimeout == 0 {
+		c.Global.WebhookTimeout = 5 * time.Second
+	}
 	if c.Global.RecoveryCooldown == 0 {
 		c.Global.RecoveryCooldown = 5 * time.Minute
 	}
@@ -124,6 +131,12 @@ func (c *Config) validate() error {
 	validStrategies := map[string]bool{"docker_restart": true, "systemd_restart": true, "custom_command": true}
 	seenNames := map[string]bool{}
 
+	if c.Global.WebhookURL != "" {
+		u, err := url.Parse(c.Global.WebhookURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return fmt.Errorf("Error: global.webhook_url must be an http or https URL")
+		}
+	}
 	if c.Global.RecoveryCooldown < 0 {
 		return fmt.Errorf("Error: global.recovery_cooldown can't be negative")
 	}

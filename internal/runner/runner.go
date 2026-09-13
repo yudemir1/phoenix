@@ -10,6 +10,7 @@ import (
 	"github.com/yudemir1/phoenix/internal/detector"
 	"github.com/yudemir1/phoenix/internal/healer"
 	"github.com/yudemir1/phoenix/internal/monitor"
+	"github.com/yudemir1/phoenix/internal/notifier"
 )
 
 type Runner struct {
@@ -18,9 +19,10 @@ type Runner struct {
 	detector *detector.Detector
 	healer   healer.Healer
 	logger   *slog.Logger
+	notifier notifier.Notifier
 }
 
-func NewRunner(s config.ServiceConfig, checker monitor.Checker, det *detector.Detector, h healer.Healer, logger *slog.Logger) *Runner {
+func NewRunner(s config.ServiceConfig, checker monitor.Checker, det *detector.Detector, h healer.Healer, logger *slog.Logger, n notifier.Notifier) *Runner {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
@@ -30,6 +32,7 @@ func NewRunner(s config.ServiceConfig, checker monitor.Checker, det *detector.De
 		detector: det,
 		healer:   h,
 		logger:   logger.With("service", s.Name),
+		notifier: n,
 	}
 }
 
@@ -65,6 +68,13 @@ func (r *Runner) runOnce(ctx context.Context) {
 	}
 	r.logger.Log(ctx, level, "state changed", "state", newState.String(), "err", result.Err)
 
+	r.notify(ctx, notifier.Event{
+		Type:    notifier.EventStateChanged,
+		Service: r.service.Name,
+		State:   newState.String(),
+		Err:     errText(result.Err),
+	})
+
 	if newState == detector.StateDown {
 		r.heal(ctx)
 	}
@@ -80,9 +90,47 @@ func (r *Runner) heal(ctx context.Context) {
 	switch {
 	case err == nil:
 		r.logger.Info("recovery completed", "strategy", r.service.Recover.Strategy, "target", r.service.Recover.Target)
+		r.notify(ctx, notifier.Event{
+			Type:     notifier.EventRecoverySucceeded,
+			Service:  r.service.Name,
+			Strategy: r.service.Recover.Strategy,
+		})
+
 	case errors.Is(err, healer.ErrCooldownActive), errors.Is(err, healer.ErrMaxAttemptsExceeded):
 		r.logger.Warn("recovery skipped by policy", "reason", err)
+		r.notify(ctx, notifier.Event{
+			Type:     notifier.EventRecoverySkipped,
+			Service:  r.service.Name,
+			Strategy: r.service.Recover.Strategy,
+			Err:      errText(err),
+		})
+
 	default:
 		r.logger.Error("recovery failed", "strategy", r.service.Recover.Strategy, "err", err)
+		r.notify(ctx, notifier.Event{
+			Type:     notifier.EventRecoveryFailed,
+			Service:  r.service.Name,
+			Strategy: r.service.Recover.Strategy,
+			Err:      errText(err),
+		})
 	}
+}
+
+func (r *Runner) notify(ctx context.Context, ev notifier.Event) {
+	if r.notifier == nil {
+		return
+	}
+	if ev.Time.IsZero() {
+		ev.Time = time.Now()
+	}
+	if err := r.notifier.Notify(ctx, ev); err != nil {
+		r.logger.Warn("could not deliver notification", "event", string(ev.Type), "err", err)
+	}
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
