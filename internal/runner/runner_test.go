@@ -15,6 +15,7 @@ import (
 	"github.com/yudemir1/phoenix/internal/detector"
 	"github.com/yudemir1/phoenix/internal/healer"
 	"github.com/yudemir1/phoenix/internal/monitor"
+	"github.com/yudemir1/phoenix/internal/notifier"
 )
 
 // fakeChecker is a test double for monitor.Checker: it returns results from
@@ -83,7 +84,7 @@ func TestRunner_runOnce(t *testing.T) {
 	t.Run("a_healthy_result_keeps_the_service_healthy_in_the_detector", func(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: true})
 		det := detector.New(3)
-		r := NewRunner(config.ServiceConfig{Name: "svc"}, checker, det, &fakeHealer{}, nil)
+		r := NewRunner(config.ServiceConfig{Name: "svc"}, checker, det, &fakeHealer{}, nil, nil)
 
 		r.runOnce(context.Background())
 
@@ -95,7 +96,7 @@ func TestRunner_runOnce(t *testing.T) {
 	t.Run("consecutive_failing_results_reach_down_after_the_configured_threshold", func(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: false})
 		det := detector.New(3)
-		r := NewRunner(config.ServiceConfig{Name: "svc"}, checker, det, &fakeHealer{}, nil)
+		r := NewRunner(config.ServiceConfig{Name: "svc"}, checker, det, &fakeHealer{}, nil, nil)
 
 		r.runOnce(context.Background())
 		r.runOnce(context.Background())
@@ -112,7 +113,7 @@ func TestRunner_runOnce(t *testing.T) {
 	t.Run("each_call_invokes_the_checker_exactly_once", func(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: true})
 		det := detector.New(3)
-		r := NewRunner(config.ServiceConfig{Name: "svc"}, checker, det, &fakeHealer{}, nil)
+		r := NewRunner(config.ServiceConfig{Name: "svc"}, checker, det, &fakeHealer{}, nil, nil)
 
 		r.runOnce(context.Background())
 		r.runOnce(context.Background())
@@ -131,7 +132,7 @@ func TestRunner_Start(t *testing.T) {
 		r := NewRunner(config.ServiceConfig{
 			Name:          "svc",
 			CheckInterval: 10 * time.Millisecond,
-		}, checker, det, &fakeHealer{}, nil)
+		}, checker, det, &fakeHealer{}, nil, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
@@ -161,7 +162,7 @@ func TestRunner_Start(t *testing.T) {
 		r := NewRunner(config.ServiceConfig{
 			Name:          "svc",
 			CheckInterval: time.Hour, // long enough that a tick would never fire in this test
-		}, checker, det, &fakeHealer{}, nil)
+		}, checker, det, &fakeHealer{}, nil, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -194,7 +195,7 @@ func TestRunner_healing(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: false})
 		det := detector.New(3)
 		h := &fakeHealer{}
-		r := NewRunner(downService, checker, det, h, nil)
+		r := NewRunner(downService, checker, det, h, nil, nil)
 
 		for i := 0; i < 3; i++ {
 			r.runOnce(context.Background())
@@ -212,7 +213,7 @@ func TestRunner_healing(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: false})
 		det := detector.New(3)
 		h := &fakeHealer{}
-		r := NewRunner(downService, checker, det, h, nil)
+		r := NewRunner(downService, checker, det, h, nil, nil)
 
 		// Three failures reach DOWN; the following failures keep it there
 		// without producing a new state change.
@@ -229,7 +230,7 @@ func TestRunner_healing(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: false})
 		det := detector.New(3)
 		h := &fakeHealer{}
-		r := NewRunner(downService, checker, det, h, nil)
+		r := NewRunner(downService, checker, det, h, nil, nil)
 
 		r.runOnce(context.Background())
 		r.runOnce(context.Background())
@@ -246,7 +247,7 @@ func TestRunner_healing(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: true})
 		det := detector.New(3)
 		h := &fakeHealer{}
-		r := NewRunner(downService, checker, det, h, nil)
+		r := NewRunner(downService, checker, det, h, nil, nil)
 
 		for i := 0; i < 5; i++ {
 			r.runOnce(context.Background())
@@ -265,7 +266,7 @@ func TestRunner_healing(t *testing.T) {
 		)
 		det := detector.New(1)
 		h := &fakeHealer{}
-		r := NewRunner(downService, checker, det, h, nil)
+		r := NewRunner(downService, checker, det, h, nil, nil)
 
 		for i := 0; i < 3; i++ {
 			r.runOnce(context.Background())
@@ -280,7 +281,7 @@ func TestRunner_healing(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: false})
 		det := detector.New(1)
 		h := &fakeHealer{returnErr: errors.New("ssh: connection refused")}
-		r := NewRunner(downService, checker, det, h, nil)
+		r := NewRunner(downService, checker, det, h, nil, nil)
 
 		r.runOnce(context.Background()) // -> DOWN, healer fails
 		r.runOnce(context.Background()) // must still run normally afterwards
@@ -296,7 +297,7 @@ func TestRunner_healing(t *testing.T) {
 	t.Run("a_nil_healer_is_skipped_instead_of_panicking", func(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: false})
 		det := detector.New(1)
-		r := NewRunner(downService, checker, det, nil, nil)
+		r := NewRunner(downService, checker, det, nil, nil, nil)
 
 		r.runOnce(context.Background())
 
@@ -331,7 +332,7 @@ func TestRunner_logging(t *testing.T) {
 		var buf bytes.Buffer
 		checker := newFakeChecker(monitor.Result{Healthy: false})
 		h := &fakeHealer{returnErr: fmt.Errorf("%w (2m left)", healer.ErrCooldownActive)}
-		r := NewRunner(downService, checker, detector.New(1), h, newCapturingLogger(&buf, slog.LevelDebug))
+		r := NewRunner(downService, checker, detector.New(1), h, newCapturingLogger(&buf, slog.LevelDebug), nil)
 
 		driveToDown(r, 1)
 
@@ -354,7 +355,7 @@ func TestRunner_logging(t *testing.T) {
 		var buf bytes.Buffer
 		checker := newFakeChecker(monitor.Result{Healthy: false})
 		h := &fakeHealer{returnErr: errors.New("ssh: connection refused")}
-		r := NewRunner(downService, checker, detector.New(1), h, newCapturingLogger(&buf, slog.LevelDebug))
+		r := NewRunner(downService, checker, detector.New(1), h, newCapturingLogger(&buf, slog.LevelDebug), nil)
 
 		driveToDown(r, 1)
 
@@ -370,7 +371,7 @@ func TestRunner_logging(t *testing.T) {
 	t.Run("a_successful_recovery_is_logged_at_info_with_the_strategy", func(t *testing.T) {
 		var buf bytes.Buffer
 		checker := newFakeChecker(monitor.Result{Healthy: false})
-		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug))
+		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug), nil)
 
 		driveToDown(r, 1)
 
@@ -386,7 +387,7 @@ func TestRunner_logging(t *testing.T) {
 	t.Run("a_transition_into_down_is_logged_at_warn", func(t *testing.T) {
 		var buf bytes.Buffer
 		checker := newFakeChecker(monitor.Result{Healthy: false})
-		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug))
+		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug), nil)
 
 		driveToDown(r, 1)
 
@@ -404,7 +405,7 @@ func TestRunner_logging(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: true})
 		// Info level: a healthy check that changes nothing must produce no
 		// output at all, otherwise every service floods the log each tick.
-		r := NewRunner(downService, checker, detector.New(3), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelInfo))
+		r := NewRunner(downService, checker, detector.New(3), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelInfo), nil)
 
 		for i := 0; i < 5; i++ {
 			r.runOnce(context.Background())
@@ -418,7 +419,7 @@ func TestRunner_logging(t *testing.T) {
 	t.Run("routine_checks_are_visible_when_debug_is_enabled", func(t *testing.T) {
 		var buf bytes.Buffer
 		checker := newFakeChecker(monitor.Result{Healthy: true})
-		r := NewRunner(downService, checker, detector.New(3), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug))
+		r := NewRunner(downService, checker, detector.New(3), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug), nil)
 
 		r.runOnce(context.Background())
 
@@ -431,7 +432,7 @@ func TestRunner_logging(t *testing.T) {
 	t.Run("every_log_line_carries_the_service_name", func(t *testing.T) {
 		var buf bytes.Buffer
 		checker := newFakeChecker(monitor.Result{Healthy: false})
-		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug))
+		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug), nil)
 
 		driveToDown(r, 1)
 
@@ -444,13 +445,196 @@ func TestRunner_logging(t *testing.T) {
 
 	t.Run("a_nil_logger_is_replaced_by_a_discard_logger_instead_of_panicking", func(t *testing.T) {
 		checker := newFakeChecker(monitor.Result{Healthy: false})
-		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, nil)
+		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, nil, nil)
 
 		// Must not panic on a nil *slog.Logger.
 		r.runOnce(context.Background())
 
 		if r.logger == nil {
 			t.Error("runner.logger should have been replaced with a discard logger")
+		}
+	})
+}
+
+// fakeNotifier records the events the runner produced and can be told to
+// fail, so tests can check that a broken notification channel never affects
+// monitoring or recovery.
+type fakeNotifier struct {
+	mu        sync.Mutex
+	events    []notifier.Event
+	returnErr error
+}
+
+func (f *fakeNotifier) Notify(ctx context.Context, ev notifier.Event) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, ev)
+	return f.returnErr
+}
+
+func (f *fakeNotifier) all() []notifier.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]notifier.Event(nil), f.events...)
+}
+
+func (f *fakeNotifier) types() []notifier.EventType {
+	var out []notifier.EventType
+	for _, ev := range f.all() {
+		out = append(out, ev.Type)
+	}
+	return out
+}
+
+func TestRunner_notifications(t *testing.T) {
+	downService := config.ServiceConfig{
+		Name:          "svc",
+		CheckInterval: time.Hour,
+		Recover:       config.Recover{Strategy: "docker_restart", Target: "svc-container"},
+	}
+
+	t.Run("a_transition_into_down_produces_a_state_changed_event", func(t *testing.T) {
+		n := &fakeNotifier{}
+		checker := newFakeChecker(monitor.Result{Healthy: false, Err: errors.New("connection refused")})
+		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, nil, n)
+
+		r.runOnce(context.Background())
+
+		events := n.all()
+		if len(events) == 0 {
+			t.Fatal("no notification was produced")
+		}
+		ev := events[0]
+		if ev.Type != notifier.EventStateChanged {
+			t.Errorf("first event type = %q, want %q", ev.Type, notifier.EventStateChanged)
+		}
+		if ev.Service != "svc" {
+			t.Errorf("event service = %q, want %q", ev.Service, "svc")
+		}
+		if ev.State != "DOWN" {
+			t.Errorf("event state = %q, want DOWN", ev.State)
+		}
+		if !strings.Contains(ev.Err, "connection refused") {
+			t.Errorf("event err = %q, want it to carry the check error", ev.Err)
+		}
+		if ev.Time.IsZero() {
+			t.Error("event time was not filled in")
+		}
+	})
+
+	t.Run("routine_checks_that_change_nothing_produce_no_notifications", func(t *testing.T) {
+		n := &fakeNotifier{}
+		checker := newFakeChecker(monitor.Result{Healthy: true})
+		r := NewRunner(downService, checker, detector.New(3), &fakeHealer{}, nil, n)
+
+		for i := 0; i < 5; i++ {
+			r.runOnce(context.Background())
+		}
+
+		if got := n.all(); len(got) != 0 {
+			t.Errorf("got %d notifications, want 0 — only state changes should notify", len(got))
+		}
+	})
+
+	t.Run("a_successful_recovery_produces_a_recovery_succeeded_event", func(t *testing.T) {
+		n := &fakeNotifier{}
+		checker := newFakeChecker(monitor.Result{Healthy: false})
+		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, nil, n)
+
+		r.runOnce(context.Background())
+
+		types := n.types()
+		if len(types) != 2 || types[0] != notifier.EventStateChanged || types[1] != notifier.EventRecoverySucceeded {
+			t.Fatalf("event types = %v, want [state_changed recovery_succeeded]", types)
+		}
+		if strategy := n.all()[1].Strategy; strategy != "docker_restart" {
+			t.Errorf("recovery event strategy = %q, want docker_restart", strategy)
+		}
+	})
+
+	t.Run("a_failed_recovery_produces_a_recovery_failed_event_carrying_the_error", func(t *testing.T) {
+		n := &fakeNotifier{}
+		checker := newFakeChecker(monitor.Result{Healthy: false})
+		h := &fakeHealer{returnErr: errors.New("ssh: connection refused")}
+		r := NewRunner(downService, checker, detector.New(1), h, nil, n)
+
+		r.runOnce(context.Background())
+
+		events := n.all()
+		last := events[len(events)-1]
+		if last.Type != notifier.EventRecoveryFailed {
+			t.Fatalf("last event type = %q, want %q", last.Type, notifier.EventRecoveryFailed)
+		}
+		if !strings.Contains(last.Err, "connection refused") {
+			t.Errorf("event err = %q, want the healer's error", last.Err)
+		}
+	})
+
+	t.Run("a_recovery_skipped_by_policy_produces_a_skipped_event_not_a_failed_one", func(t *testing.T) {
+		n := &fakeNotifier{}
+		checker := newFakeChecker(monitor.Result{Healthy: false})
+		h := &fakeHealer{returnErr: fmt.Errorf("%w (2m left)", healer.ErrCooldownActive)}
+		r := NewRunner(downService, checker, detector.New(1), h, nil, n)
+
+		r.runOnce(context.Background())
+
+		last := n.all()[len(n.all())-1]
+		if last.Type != notifier.EventRecoverySkipped {
+			t.Errorf("last event type = %q, want %q", last.Type, notifier.EventRecoverySkipped)
+		}
+		for _, ev := range n.all() {
+			if ev.Type == notifier.EventRecoveryFailed {
+				t.Error("a policy skip must never be reported as a failed recovery")
+			}
+		}
+	})
+
+	t.Run("a_notification_failure_does_not_break_monitoring_or_recovery", func(t *testing.T) {
+		n := &fakeNotifier{returnErr: errors.New("slack is down")}
+		checker := newFakeChecker(monitor.Result{Healthy: false})
+		h := &fakeHealer{}
+		r := NewRunner(downService, checker, detector.New(1), h, nil, n)
+
+		r.runOnce(context.Background()) // -> DOWN, heal, both notifications fail
+		r.runOnce(context.Background()) // the loop must keep going
+
+		if got := h.callCount(); got != 1 {
+			t.Errorf("healer was called %d times, want 1 — a failed notification must not stop recovery", got)
+		}
+		if got := checker.callCount(); got != 2 {
+			t.Errorf("checker was called %d times, want 2 — a failed notification must not stop the loop", got)
+		}
+		if got := r.detector.GetState("svc"); got != detector.StateDown {
+			t.Errorf("detector state = %s, want %s", got, detector.StateDown)
+		}
+	})
+
+	t.Run("a_notification_failure_is_logged_as_a_warning", func(t *testing.T) {
+		var buf bytes.Buffer
+		n := &fakeNotifier{returnErr: errors.New("slack is down")}
+		checker := newFakeChecker(monitor.Result{Healthy: false})
+		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, newCapturingLogger(&buf, slog.LevelDebug), n)
+
+		r.runOnce(context.Background())
+
+		out := buf.String()
+		if !strings.Contains(out, "could not deliver notification") {
+			t.Errorf("log did not mention the delivery failure:\n%s", out)
+		}
+		if !strings.Contains(out, "level=WARN") {
+			t.Errorf("a delivery failure should be logged at WARN:\n%s", out)
+		}
+	})
+
+	t.Run("a_nil_notifier_is_skipped_instead_of_panicking", func(t *testing.T) {
+		checker := newFakeChecker(monitor.Result{Healthy: false})
+		r := NewRunner(downService, checker, detector.New(1), &fakeHealer{}, nil, nil)
+
+		// Must not panic with no notifier configured.
+		r.runOnce(context.Background())
+
+		if got := r.detector.GetState("svc"); got != detector.StateDown {
+			t.Errorf("detector state = %s, want %s", got, detector.StateDown)
 		}
 	})
 }

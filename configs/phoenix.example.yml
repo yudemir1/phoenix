@@ -7,6 +7,11 @@ global:
   recovery_max_attempts: 3
   recovery_attempt_window: 30m
 
+  # Optional: POST notifications to this URL. Leave unset to disable them.
+  # This value is a secret — keep it out of version control.
+  # webhook_url: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+  # webhook_timeout: 5s
+
 services:
   - name: google
     check_type: http

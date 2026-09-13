@@ -116,6 +116,8 @@ per-service ones individually.
 | `recovery_max_attempts` | `3` | Recovery attempts allowed per service inside `recovery_attempt_window`. |
 | `recovery_attempt_window` | `30m` | How far back attempts are counted; older ones are forgotten. |
 | `known_hosts` | `~/.ssh/known_hosts` | File used to verify SSH host keys. |
+| `webhook_url` | — | Where to POST notifications. Empty disables notifications entirely. |
+| `webhook_timeout` | `5s` | How long to wait for the notification endpoint. |
 | `insecure_skip_host_key_verify` | `false` | Disables host key verification. See [Security](#security). |
 
 ### `services`
@@ -218,6 +220,49 @@ that, and they solve different problems:
 A refused attempt is logged at `warn` as `recovery skipped by policy`, which
 is deliberately distinct from `recovery failed` — one means Phoenix chose not
 to act, the other means it tried and the command failed.
+
+## Notifications
+
+Set `webhook_url` and Phoenix will POST a JSON payload whenever something
+worth a human's attention happens:
+
+| Event | Sent when |
+|---|---|
+| `state_changed` | A service moves between HEALTHY, DEGRADED and DOWN |
+| `recovery_succeeded` | A recovery command completed successfully |
+| `recovery_failed` | A recovery was attempted and failed |
+| `recovery_skipped` | The recovery policy refused the attempt (cooldown, or attempts exhausted) |
+
+Routine checks never notify — only the transitions above do.
+
+The payload carries a `text` field holding a human-readable one-liner, plus
+the structured fields behind it:
+
+```json
+{
+  "text": "web-api: recovery FAILED (docker_restart): ssh: connection refused",
+  "type": "recovery_failed",
+  "service": "web-api",
+  "state": "",
+  "strategy": "docker_restart",
+  "error": "ssh: connection refused",
+  "time": "2026-09-13T02:30:00Z"
+}
+```
+
+That shape works with a Slack incoming webhook, which renders `text` and
+ignores the rest, and equally with an endpoint of your own that wants the
+structured fields.
+
+Notifications are a side channel: if the endpoint is slow, returns an error
+or cannot be reached, Phoenix logs a warning at `warn` and carries on
+monitoring and recovering. A broken notification channel never stops
+Phoenix from doing its job.
+
+> **`webhook_url` is a secret.** Anyone holding a Slack incoming webhook URL
+> can post to that channel. Phoenix never writes it to the log, but it does
+> live in your config file — permission that file accordingly
+> (`chmod 600`), and keep it out of version control.
 
 ## Security
 

@@ -14,6 +14,7 @@ import (
 	"github.com/yudemir1/phoenix/internal/detector"
 	"github.com/yudemir1/phoenix/internal/healer"
 	"github.com/yudemir1/phoenix/internal/monitor"
+	"github.com/yudemir1/phoenix/internal/notifier"
 	"github.com/yudemir1/phoenix/internal/runner"
 )
 
@@ -59,6 +60,11 @@ func main() {
 		AttemptWindows: cfg.Global.RecoveryAttemptWindow,
 	})
 
+	var notif notifier.Notifier
+	if cfg.Global.WebhookURL != "" {
+		notif = notifier.NewWebhookNotifier(cfg.Global.WebhookURL, cfg.Global.WebhookTimeout)
+		logger.Info("notifications enabled", "timeout", cfg.Global.WebhookTimeout)
+	}
 	var wg sync.WaitGroup
 
 	for _, s := range cfg.Services {
@@ -68,7 +74,7 @@ func main() {
 			continue
 		}
 
-		svcRunner := runner.NewRunner(s, checker, det, h, logger)
+		svcRunner := runner.NewRunner(s, checker, det, h, logger, notif)
 
 		wg.Add(1)
 		go func() {
